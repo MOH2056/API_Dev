@@ -98,7 +98,8 @@ const loginUser = async(req, res) => {
     const withoutPassword = await user.findById(checkIfEmailExist._id).select('-password')
     const payload = {
         useremail: checkIfEmailExist.email,
-        userId: checkIfEmailExist.id
+        userId: checkIfEmailExist.id,
+        userrole: checkIfEmailExist.role
     }
     const accessToken = jwt.sign(payload, process.env.ACCESS_SECRET, {expiresIn: '1h'})
     return res

@@ -15,10 +15,16 @@ const taskSchema = new mongoose.Schema({
         type: String,
         enum: ['pending', 'In progress', 'completed'],
         default: 'pending'
-    }
- }, { timestamps: true
+    },
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true,
+        ref: 'user'
+    }, 
+}, { timestamps: true
 })
 
+taskSchema.index({status: 1, dueDate: 1})
 
 const task = mongoose.model('task', taskSchema)
 

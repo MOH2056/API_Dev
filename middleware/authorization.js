@@ -3,13 +3,10 @@ import jwt from 'jsonwebtoken'
 const authorization = (requiredRole) => (req, res, next) => {
     const authHeader = req.headers['authorization'];
     if (!authHeader) {
-        return res.status(401).send('Authorization header is missing.');
+        return res.status(401).send('Token missing in authorization header.');
     }
     console.log(authHeader);
     const token = authHeader.split(' ')[1];
-    if (!token) {
-        return res.status(401).send('Token missing in authorization header.');
-    }
     jwt.verify (token, process.env.ACCESS_SECRET, (err, decoded) => {
         if (err) {
             return res.status(403).send('Invalid or expired token.');

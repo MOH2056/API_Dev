@@ -1,5 +1,7 @@
 import task from '../model/taskModel.js'
 import mongoose from 'mongoose'
+import redis from 'redis'
+import getRedisClient from '../redis.js'
 
 const createTask = async (req, res)  => {
     const {title, description, dueDate} = req.body
@@ -12,25 +14,9 @@ const createTask = async (req, res)  => {
             status_code: 400
         })
     }
-    if (!req.user || !req.user.userId) {
-        return res.status(401).json({
-            message: 'Unauthorized: User not authenticated.',
-            status: 'Error',
-            status_code: 401
-        });
-    }
     try{
-        const saveTask = new task({title, description, dueDate, createdBy: req.user.userId })
+        const saveTask = await task({title, description, dueDate, createdBy: req.user.userId })
         await saveTask.save();
-        if (!saveTask) {
-            return res
-            .status(500)
-            .json({
-                message: 'Failed to save task',
-                status: 'error',
-                status_code: 500
-            });
-        }
         return res
         .status(201)
         .json({
@@ -43,28 +29,36 @@ const createTask = async (req, res)  => {
         console.error(error.message)
         return res
         .status(500)
-        .json('An error occurred while processing your request. Please try again later.')
+        .json({
+            message: 'An error occurred while processing your request. Please try again later.',
+            status: 'Error',
+            status_code: 500       
+        })
 
     }
 }
 
 const getAllTasks = async(req, res) => {
-    const page = req.query.page || 1;
-    const limit = req.query.limit || 5;
-    const skip = (page - 1) * limit; 
-    if (!req.user || !req.user.userId) {
-        return res.status(401).json({
-            message: 'Unauthorized: User not authenticated.',
-            status: 'Error',
-            status_code: 401
-        });
-    }
-    
+    const page =  parseInt(req.query.page ) || 1
+    const limit = parseInt(req.query.limit ) || 5
+    const skip = (page - 1)*limit
     try {
-        const findTask = await task.find({createdBy: req.user.userId})
+        const client = await getRedisClient()
+    
+        const cachedData = await client.get('tasks')
+
+        if (cachedData) {
+            console.log('Serving from Redis cache');
+            return res.json({ tasks: JSON.parse(cachedData) });
+        }
+
+         const findTask = await task.find({createdBy: req.user.userId})
         .skip(skip)
         .limit(limit)
         .exec()
+        await client.set('tasks', JSON.stringify(findTask), {
+            EX: 3600,
+        });
         if (findTask.length === 0) {
             return res.status(404).json({
                 message: 'No tasks found.',
@@ -72,7 +66,7 @@ const getAllTasks = async(req, res) => {
                 status_code: 404
             });
         }
-         return res.status(200).json({
+        return res.status(200).json({
             message: 'Data fetched successfully',
             status: 'success',
             status_code: 200,
@@ -89,18 +83,30 @@ const getAllTasks = async(req, res) => {
 }
 const getTask = async (req, res) => {
     try {
+        const clients = await getRedisClient()
+    
+        const cachedtask = await clients.get('tasks:id')
+        if (cachedtask) {
+            console.log('Serving from Redis cache');
+            return res.json({ tasks: JSON.parse(cachedtask) });
+        }
+
         const foundtask = await task.findById(req.params.id)
-        if (!foundtask)
-             return res
-             .status(404)
-             .json({
-                 message: 'No matching task found. Please verify the task ID and try again.',
-                 status: Error,
-                 status_code: 404
-             })
-             return res
-            .status(200)
-            .json(foundtask)
+        await clients.set('tasks:id', JSON.stringify(foundtask), {
+            EX: 3600,
+        });
+        if (!foundtask) {
+            return res
+            .status(404)
+            .json({
+                message: 'No matching task found. Please verify the task ID and try again.',
+                status: 'Error',
+                status_code: 404
+            })
+        }
+        return res
+        .status(200)
+        .json(foundtask)
     } catch(error) {
         console.error(error.message)
         return res
@@ -177,101 +183,6 @@ const updateTask = async(req, res) => {
             status_code: 500      
         })
     }
- }
- 
- const indexSearcher = async(req, res) => {
-    try {
-        const { status, dueDate, page = 1, limit = 5 } = req.query;
-        const query = {};
-        const skip = (page - 1) * limit;
-        
-        if (status) query.status = status;
-        
-         if (dueDate) query.dueDate = dueDate;//{
-        //     const date = new Date(dueDate);
-        //     if (!isNaN(date.getTime())) {
-        //         query.dueDate = date;
-        //     } else {
-        //         return res.status(400).json({
-        //             message: 'Invalid dueDate format. Please provide a valid date.',
-        //             status: 'Error',
-        //             status_code: 400,
-        //         });
-        //     }
-        // }
-        //console.log(query)
-        const tasks = await task.find(query)
-        .skip(skip)
-        .limit(limit)
-        if (task.length === 0) {
-            return res.status(404).json({
-                message: 'No tasks found.',
-                status: 'Error',
-                status_code: 404
-            });
-        }
-        return res
-        .status(200)
-        .json({
-            message: 'Found',
-            status: 'Success',
-            status_code: 200,
-            tasks
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({ error: 'Server Error' });
-    }
 }
-
-const updateTaskStatus = async (req, res) => {
-    // Array of statuses in the order of looping
-    const statuses = ['pending', 'in-progress', 'complete'];
-
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return res.status(400).json({
-            message: 'Invalid Task ID',
-            status: 'Error',
-            status_code: 400,
-        });
-    }
-
-    try {
-        // Find the task by ID
-        const task = await Task.findById(req.params.id);
-
-        if (!task) {
-            return res.status(404).json({
-                message: 'Task not found',
-                status: 'Error',
-                status_code: 404,
-            });
-        }
-
-        // Determine the next status
-        const currentIndex = statuses.indexOf(task.status);
-        const nextIndex = (currentIndex + 1) % statuses.length; // Loop back to 0 if at the end
-        const nextStatus = statuses[nextIndex];
-
-        // Update the task's status
-        task.status = nextStatus;
-        await task.save();
-
-        return res.status(200).json({
-            message: `Task status updated to '${nextStatus}'`,
-            status: 'Success',
-            status_code: 200,
-            task,
-        });
-    } catch (error) {
-        console.error(error.message);
-        return res.status(500).json({
-            message: 'An error occurred while updating the task status',
-            status: 'Error',
-            status_code: 500,
-            error: error.message,
-        });
-    }
-};
-
- export {createTask, getAllTasks, updateTask, getTask, deleteTask, indexSearcher}
+ 
+ export {createTask, getAllTasks, updateTask, getTask, deleteTask}

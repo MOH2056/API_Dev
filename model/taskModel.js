@@ -3,13 +3,15 @@ import mongoose from "mongoose"
 const taskSchema = new mongoose.Schema({
     title: {
         type: String,
-        required: true
+        required: true,
+        unique: true
      },
     description: {
         type: String
     },
     dueDate: {
-        type: Date
+        type: Date,
+        default: new Date()
     },
     status: {
         type: String,
@@ -24,7 +26,7 @@ const taskSchema = new mongoose.Schema({
 }, { timestamps: true
 })
 
-taskSchema.index({status: 1, dueDate: 1})
+taskSchema.index({status: 1, dueDate: 1, title: 1})
 
 const task = mongoose.model('task', taskSchema)
 

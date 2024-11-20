@@ -95,7 +95,7 @@ const loginUser = async(req, res) => {
             status_code: 401
         })
     }
-    const withoutPassword = await user.findById(checkIfEmailExist._id).select('-password')
+    const withoutPassword = await user.findById(checkIfEmailExist._id).select('-password -role')
     const payload = {
         useremail: checkIfEmailExist.email,
         userId: checkIfEmailExist.id,

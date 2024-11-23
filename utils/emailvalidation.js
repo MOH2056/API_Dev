@@ -3,7 +3,5 @@ function validateEmail(email) {
     return regexPattern.test(email);
 
 }
-validateEmail('xyz321@gmail.com');
-validateEmail('youtube@com');
 
 export default validateEmail

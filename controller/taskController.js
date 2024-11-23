@@ -2,43 +2,43 @@ import task from '../model/taskModel.js'
 import mongoose from 'mongoose'
 import redis from 'redis'
 import getRedisClient from '../redis.js'
+import { BadRequestError, NotFoundError } from '../middleware/errorHandler.js'
+import sendResponse from '../utils/responseHandler.js'
 
-const createTask = async (req, res)  => {
-    const {title, description, dueDate} = req.body
-    if (!title || !description || !dueDate ) {
-        return res
-        .status(400)
-        .json({
-            message: 'required',
-            status: 'Error',
-            status_code: 400
-        })
+const createTask = async (req, res, next) => {
+    const { title, description, dueDate } = req.body;
+
+    if (!title || !description || !dueDate) {
+        return next(new BadRequestError('All fields (title, description, dueDate) are required.'));
     }
-    try{
-        const saveTask = await task({title, description, dueDate, createdBy: req.user.userId })
+
+    try {
+        const saveTask = new task({
+            title,
+            description,
+            dueDate,
+            createdBy: req.user.userId,
+        });
+
         await saveTask.save();
-        return res
-        .status(201)
-        .json({
-            message: 'Task created',
-            status: 'success',
-            status_code: 201,
-            saveTask
-        })
-    }catch(error) {
-        console.error(error.message)
-        return res
-        .status(500)
-        .json({
-            message: 'An error occurred while processing your request. Please try again later.',
-            status: 'Error',
-            status_code: 500       
-        })
 
+        sendResponse(res, {
+            message: 'Task created successfully.',
+            statusCode: 201,
+            data: saveTask,
+        });
+    } catch (error) {
+        if (!(error instanceof CustomError)) {
+            error = new CustomError('An error occurred while creating the task.', 500);
+        }
+
+        next(error);
     }
-}
+};
 
-const getAllTasks = async(req, res) => {
+
+
+const getAllTasks = async(req, res, next) => {
     const page =  parseInt(req.query.page ) || 1
     const limit = parseInt(req.query.limit ) || 5
     const skip = (page - 1)*limit
@@ -60,28 +60,15 @@ const getAllTasks = async(req, res) => {
             EX: 3600,
         });
         if (findTask.length === 0) {
-            return res.status(404).json({
-                message: 'No tasks found.',
-                status: 'Error',
-                status_code: 404
-            });
+            return next(new NotFoundError('Task not found.'));
         }
-        return res.status(200).json({
-            message: 'Data fetched successfully',
-            status: 'success',
-            status_code: 200,
-            Tasks: findTask
-        });
+        sendResponse(res, {message: 'Task found.', status_code: 200, data: findTask})
     }catch(error){
         console.error(error.message)
-        return res
-        .status(500)
-        .json({
-            message:'An error occurred while fetch data. Please try again later.'
-        })
+        next(error)
     }
 }
-const getTask = async (req, res) => {
+const getTask = async (req, res, next) => {
     try {
         const clients = await getRedisClient()
     
@@ -96,92 +83,49 @@ const getTask = async (req, res) => {
             EX: 3600,
         });
         if (!foundtask) {
-            return res
-            .status(404)
-            .json({
-                message: 'No matching task found. Please verify the task ID and try again.',
-                status: 'Error',
-                status_code: 404
-            })
+            return next (new NotFoundError('Task not found.'));
         }
-        return res
-        .status(200)
-        .json(foundtask)
+       
+        sendResponse(res, {message: 'Task found.', status_code: 200, data: foundtask})
     } catch(error) {
         console.error(error.message)
-        return res
-        .status(500)
-        .json('An error occurred while processing your request. Please try again later.')
+        next(error);
     }
 }
 
-const updateTask = async(req, res) => {
+const updateTask = async(req, res, next) => {
     try {
         const updatedTask = await task.findByIdAndUpdate(req.params.id, req.body,{
             new: true,
             runValidators: true
         })
         if(!updatedTask) {
-            return res
-            .status(404)
-            .json({
-                message: "Update failed",
-                status: Error,
-                status_code: 404
-            })
+           return next( new NotFoundError('Not updated.'));
         }
-        return res
-        .status(200)
-        .json({
-            message: 'Task updated successfully',
-            status: 'Success',
-            status_code: 200,
-            updatedTask
-        })
+        sendResponse(res, {message: 'Task updated successfully', status_code: 200, data: updatedTask})
     } catch(error) {
         console.error(error.message)
-        return res
-        .status(500)
-        .json('An error occurred while updating the task. Please try again later.')
+        next(error);
     }
  }
- const deleteTask = async(req, res) => {
+ const deleteTask = async(req, res, next) => {
     if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        return res.status(400).json({
-            message: 'Invalid Task ID',
-            status: 'Error',
-            status_code: 400,
-        });
+        throw new BadRequestError()
     }
     
     try{
         const deletedTask = await task.findByIdAndDelete(req.params.id)
         if (!deletedTask) {
-            return res
-            .status(404)
-            .json({
-                message: 'Task not found. Deletion failed.',
-                status: 'Error',
-                status_code: 404
-            })
+            return next(new NotFoundError('Task not deleted.'));
         }
-        return res
-        .status(200)
-        .json({
+        sendResponse(res, {
             message: 'Task deleted successfully',
-            status: 'Success',
-            status_code: 200,
-            deletedTask
-        })
+            data: { deletedTask }
+        });
+        
     } catch(error) {
         console.error(error.message)
-        return res
-        .status(500)
-        .json({
-            message: 'An error occurred while deleting task. Please try again later.',
-            status: 'Error',
-            status_code: 500      
-        })
+        next(error);
     }
 }
  
